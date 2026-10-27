@@ -46,6 +46,17 @@ jobs:
           java-version: "17"
 
       - uses: android-actions/setup-android@v3
+        with:
+          # Override the action's own default ("tools platform-tools") —
+          # the legacy "tools" package no longer exists in Google's SDK
+          # repository and makes sdkmanager fail with "Failed to find
+          # package 'tools'" (exit code 1), which killed the first run of
+          # this workflow. platform-tools (adb) is the only package this
+          # build actually needs installed up front; the Android Gradle
+          # Plugin downloads the specific platform/build-tools versions it
+          # needs on its own during the Gradle build below, using the
+          # already-accepted licenses.
+          packages: platform-tools
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
