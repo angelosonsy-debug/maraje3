@@ -1,0 +1,24 @@
+kind = "mobile"
+previewPath = "/maraje3/"
+title = "مراجع | Maraje3"
+description = "A native Arabic-first student resource library for browsing, searching, saving, and downloading university study materials."
+version = "1.0.0"
+id = "artifacts/maraje3"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/maraje3/" ]
+localPort = 20172
+
+[services.development]
+run = "pnpm --filter @workspace/maraje3 run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/maraje3", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/maraje3", "run", "serve" ]
+
+[services.env]
+PORT = "20172"
+BASE_PATH = "/maraje3/"

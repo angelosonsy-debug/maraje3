@@ -1,0 +1,2148 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API for the shared Maraje3 student resource catalog
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: catalog
+    description: Public academic resource catalog
+  - name: catalog-admin
+    description: Restricted catalog management
+  - name: auth
+    description: Contributor accounts and sessions (Google sign-in)
+  - name: uploads
+    description: Student file uploads awaiting admin review
+  - name: reports
+    description: Content and profile reports
+  - name: engagement
+    description: Downloads, thanks, contributor titles, and the per-faculty leaderboard
+  - name: requests
+    description: "\"مطلوب\" board — students ask for a file that doesn't exist yet"
+  - name: growth
+    description: "Stage 6 retention/growth: Telegram account linking. Exam reminders are client-only (no server endpoint); material share pages and the Telegram submissions/bulk-upload intake sit outside this JSON contract (binary/HTML routes) — see artifacts/api-server/src/routes/telegram.ts and routes/share.ts."
+  - name: flashcards
+    description: "Stage 7 light study mode — flashcard decks. Review progress itself is local-only (AsyncStorage), no server endpoint for it."
+  - name: premium
+    description: "Stage 7 one-time Premium purchase (react-native-iap) — server-side Google Play purchase verification."
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /catalog:
+    get:
+      operationId: getCatalog
+      tags: [catalog]
+      summary: Get the published academic catalog
+      deprecated: true
+      description: Legacy full-catalog endpoint. Use /catalog/tree and /materials.
+      responses:
+        "200":
+          description: Published catalog hierarchy and materials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogResponse"
+  /catalog/search:
+    get:
+      operationId: searchCatalog
+      tags: [catalog]
+      summary: Search published catalog materials
+      deprecated: true
+      description: Legacy in-memory search endpoint. Use the database-backed /materials endpoint.
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+            maxLength: 120
+        - in: query
+          name: universityId
+          schema:
+            type: integer
+        - in: query
+          name: facultyId
+          schema:
+            type: integer
+        - in: query
+          name: academicYearId
+          schema:
+            type: integer
+        - in: query
+          name: semesterId
+          schema:
+            type: integer
+        - in: query
+          name: subjectId
+          schema:
+            type: integer
+        - in: query
+          name: category
+          schema:
+            $ref: "#/components/schemas/MaterialCategory"
+      responses:
+        "200":
+          description: Matching published materials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialSearchResponse"
+  /catalog/tree:
+    get:
+      operationId: getCatalogTree
+      tags: [catalog]
+      summary: Get the academic hierarchy without material records
+      responses:
+        "200":
+          description: Academic hierarchy, suitable for short-lived caching
+          headers:
+            ETag:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogTreeResponse"
+        "304":
+          description: The cached hierarchy has not changed
+  /materials:
+    get:
+      operationId: getMaterials
+      tags: [catalog]
+      summary: Find published materials with database filters and pagination
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - in: query
+          name: universityId
+          schema:
+            type: integer
+        - in: query
+          name: facultyId
+          schema:
+            type: integer
+        - in: query
+          name: academicYearId
+          schema:
+            type: integer
+        - in: query
+          name: semesterId
+          schema:
+            type: integer
+        - in: query
+          name: subjectId
+          schema:
+            type: integer
+        - in: query
+          name: category
+          schema:
+            $ref: "#/components/schemas/MaterialCategory"
+        - in: query
+          name: examType
+          schema:
+            $ref: "#/components/schemas/ExamType"
+        - in: query
+          name: examYear
+          schema:
+            type: integer
+        - in: query
+          name: professorName
+          schema:
+            type: string
+            maxLength: 120
+        - in: query
+          name: q
+          schema:
+            type: string
+            maxLength: 120
+      responses:
+        "200":
+          description: A page of matching published materials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialsPageResponse"
+        "400":
+          description: Invalid filters or pagination parameters
+  /materials/{id}:
+    get:
+      operationId: getMaterial
+      tags: [catalog]
+      summary: Get one published material
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Published material record, with its public uploader attribution line
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialDetail"
+        "404":
+          description: The material does not exist or is not published
+  /catalog/admin/access:
+    get:
+      operationId: getCatalogAdminAccess
+      tags: [catalog-admin]
+      summary: Verify administrator access
+      security:
+        - adminBearer: []
+      responses:
+        "200":
+          description: Administrator token is valid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAccessResponse"
+        "401":
+          description: Administrator token is missing or invalid
+        "503":
+          description: Administrator access is not configured on the server
+  /catalog/admin/catalog:
+    get:
+      operationId: getCatalogAdminCatalog
+      tags: [catalog-admin]
+      summary: Get all catalog records, including drafts
+      security:
+        - adminBearer: []
+      responses:
+        "200":
+          description: Complete catalog for administrators
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogResponse"
+        "401":
+          description: Administrator token is missing or invalid
+        "503":
+          description: Administrator access is not configured on the server
+  /catalog/admin/manage:
+    post:
+      operationId: manageCatalogAdmin
+      tags: [catalog-admin]
+      summary: Create, update, or remove a catalog record
+      security:
+        - adminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminManageRequest"
+      responses:
+        "200":
+          description: Catalog change applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminManageResponse"
+        "400":
+          description: Request is invalid or content authorization is missing
+        "401":
+          description: Administrator token is missing or invalid
+        "404":
+          description: Record does not exist
+        "409":
+          description: Record cannot be removed while it has child records
+        "503":
+          description: Administrator access is not configured on the server
+  /auth/google:
+    post:
+      operationId: signInWithGoogle
+      tags: [auth]
+      summary: Sign in or register a contributor with a Google ID token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GoogleSignInRequest"
+      responses:
+        "200":
+          description: Session created and user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GoogleSignInResponse"
+        "400":
+          description: Request body is invalid
+        "401":
+          description: The Google ID token could not be verified
+        "503":
+          description: Google sign-in is not configured on the server
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Get the signed-in contributor's profile
+      security:
+        - userBearer: []
+      responses:
+        "200":
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Session token is missing, invalid, or expired
+    patch:
+      operationId: updateCurrentUser
+      tags: [auth]
+      summary: Update the signed-in contributor's profile
+      security:
+        - userBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCurrentUserRequest"
+      responses:
+        "200":
+          description: Updated user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "400":
+          description: Request body is invalid
+        "401":
+          description: Session token is missing, invalid, or expired
+    delete:
+      operationId: deleteCurrentUser
+      tags: [auth]
+      summary: Delete the signed-in contributor's account
+      description: Unlinks the contributor's identity from their account and materials. Approved materials remain published without attribution.
+      security:
+        - userBearer: []
+      responses:
+        "200":
+          description: Account deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountDeletionResult"
+        "401":
+          description: Session token is missing, invalid, or expired
+  /auth/refresh:
+    post:
+      operationId: refreshSession
+      tags: [auth]
+      summary: Exchange a still-valid session token for a new one with renewed expiry
+      security:
+        - userBearer: []
+      responses:
+        "200":
+          description: Renewed session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionTokenResponse"
+        "401":
+          description: Session token is missing, invalid, or expired
+  /uploads/presign:
+    post:
+      operationId: presignUpload
+      tags: [uploads]
+      summary: Request a destination to upload a file to before submitting it
+      security:
+        - userBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadPresignRequest"
+      responses:
+        "200":
+          description: Upload destination (direct presigned URL, or server relay)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadPresignResponse"
+        "400":
+          description: File name, type, or size is not allowed
+        "401":
+          description: Session token is missing, invalid, or expired
+        "403":
+          description: This account's uploads are currently suspended
+        "429":
+          description: Daily upload limit reached
+  /uploads:
+    post:
+      operationId: createMaterialUpload
+      tags: [uploads]
+      summary: Submit an uploaded file as a material pending review
+      description: Server re-downloads the object to verify its real file type (magic bytes) and content hash before creating the material record.
+      security:
+        - userBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMaterialUploadRequest"
+      responses:
+        "200":
+          description: Material created as pending, or an existing duplicate was found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MaterialUploadResult"
+        "400":
+          description: Request is invalid, the file type could not be verified, or the subject does not exist
+        "401":
+          description: Session token is missing, invalid, or expired
+        "403":
+          description: This account's uploads are currently suspended
+        "404":
+          description: The uploaded object was not found (upload may not have completed)
+  /uploads/mine:
+    get:
+      operationId: getMyUploads
+      tags: [uploads]
+      summary: List the signed-in contributor's own materials, including pending and rejected ones
+      security:
+        - userBearer: []
+      responses:
+        "200":
+          description: The contributor's materials in any publication status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyUploadsResponse"
+        "401":
+          description: Session token is missing, invalid, or expired
+  /reports:
+    post:
+      operationId: createReport
+      tags: [reports]
+      summary: Report a material, a contributor profile, or a request
+      description: Works without signing in; an anonymous device id is used instead to apply the rate limit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReportRequest"
+      responses:
+        "200":
+          description: Report recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportSubmissionResult"
+        "400":
+          description: Request is invalid
+        "429":
+          description: Too many reports from this device recently
+  /catalog/admin/reports:
+    get:
+      operationId: getAdminReports
+      tags: [reports, catalog-admin]
+      summary: List reports for administrator review
+      security:
+        - adminBearer: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            $ref: "#/components/schemas/ReportStatus"
+      responses:
+        "200":
+          description: Matching reports, newest first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminReportsResponse"
+        "401":
+          description: Administrator token is missing or invalid
+        "503":
+          description: Administrator access is not configured on the server
+  /catalog/admin/reports/{id}/resolve:
+    post:
+      operationId: resolveAdminReport
+      tags: [reports, catalog-admin]
+      summary: Act on a report (unpublish the target, dismiss, or suspend the uploader)
+      security:
+        - adminBearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminReportActionRequest"
+      responses:
+        "200":
+          description: Action applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminReportActionResponse"
+        "400":
+          description: Request is invalid
+        "401":
+          description: Administrator token is missing or invalid
+        "404":
+          description: Report does not exist
+  /materials/{id}/download:
+    post:
+      operationId: recordMaterialDownload
+      tags: [engagement]
+      summary: Count a download of a published material
+      description: Deduplicated once per device per file per calendar day (UTC). Signing in is optional (an Authorization bearer header is honored if present) — the X-Device-Id header is what dedup and the "self-download doesn't count" rule key off. A contributor downloading their own material is accepted but never counted.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+        - in: header
+          name: X-Device-Id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+      responses:
+        "200":
+          description: Updated (or unchanged, if already counted today) download count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordDownloadResponse"
+        "400":
+          description: X-Device-Id header is missing
+        "404":
+          description: The material does not exist or is not published
+  /materials/{id}/thanks:
+    post:
+      operationId: recordMaterialThanks
+      tags: [engagement]
+      summary: Send a one-time "شكراً" to a published material's contributor
+      description: One per device per file, forever (not per day, unlike downloads). A contributor thanking their own material is accepted but never counted.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+        - in: header
+          name: X-Device-Id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+      responses:
+        "200":
+          description: Updated (or unchanged, if this device already thanked it) thanks count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecordThanksResponse"
+        "400":
+          description: X-Device-Id header is missing
+        "404":
+          description: The material does not exist or is not published
+  /contributors/{id}:
+    get:
+      operationId: getContributorProfile
+      tags: [engagement]
+      summary: Public contributor profile (name, faculty, title, stats, published materials)
+      description: Respects hideIdentity — returns 404 for a contributor who has chosen to hide their identity, the same as if the account did not exist.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Public contributor profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContributorProfileResponse"
+        "404":
+          description: Contributor does not exist or has hidden their identity
+  /leaderboard:
+    get:
+      operationId: getLeaderboard
+      tags: [engagement]
+      summary: Top 10 contributors in one faculty, by published-material downloads
+      description: "Note: there is no explicit start/end date on a semester in this catalog, so the 'semester' scope approximates \"current semester\" as a rolling trailing window (LEADERBOARD_WINDOW_DAYS, default 120 days) of download activity rather than a true semester boundary."
+      parameters:
+        - in: query
+          name: facultyId
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: scope
+          required: true
+          schema:
+            $ref: "#/components/schemas/LeaderboardScope"
+      responses:
+        "200":
+          description: Top contributors in this faculty for the requested scope
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LeaderboardResponse"
+        "400":
+          description: facultyId or scope is invalid
+        "404":
+          description: The faculty does not exist
+  /requests:
+    get:
+      operationId: getRequests
+      tags: [requests]
+      summary: List "مطلوب" board requests for one faculty, sorted by "أنا كمان" count then newest
+      parameters:
+        - in: query
+          name: facultyId
+          required: true
+          schema:
+            type: integer
+        - in: query
+          name: subjectId
+          schema:
+            type: integer
+        - in: query
+          name: status
+          schema:
+            $ref: "#/components/schemas/RequestStatus"
+      responses:
+        "200":
+          description: Matching requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestsListResponse"
+        "400":
+          description: facultyId is invalid
+    post:
+      operationId: createRequest
+      tags: [requests]
+      summary: Ask for a file that doesn't exist yet
+      description: Requires signing in (to curb spam) and is capped at 3 requests/day/account.
+      security:
+        - userBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRequestRequest"
+      responses:
+        "200":
+          description: Request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestCreationResult"
+        "400":
+          description: Request body is invalid, or the faculty/subject does not exist
+        "401":
+          description: Session token is missing, invalid, or expired
+        "429":
+          description: Daily request limit reached
+  /requests/{id}/me-too:
+    post:
+      operationId: recordRequestMeToo
+      tags: [requests]
+      summary: Add a one-time "أنا كمان" to a request
+      description: Works without signing in — one per device per request, forever, deduplicated via X-Device-Id.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+        - in: header
+          name: X-Device-Id
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 120
+      responses:
+        "200":
+          description: Updated (or unchanged, if this device already added "أنا كمان") count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestMeTooResponse"
+        "400":
+          description: X-Device-Id header is missing
+        "404":
+          description: The request does not exist
+  /catalog/admin/requests/{id}/manage:
+    post:
+      operationId: manageAdminRequest
+      tags: [requests, catalog-admin]
+      summary: Close or delete a "مطلوب" board request
+      security:
+        - adminBearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminRequestActionRequest"
+      responses:
+        "200":
+          description: Action applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminRequestActionResponse"
+        "400":
+          description: Request body is invalid
+        "401":
+          description: Administrator token is missing or invalid
+        "404":
+          description: The request does not exist
+  /telegram/link-code:
+    post:
+      operationId: createTelegramLinkCode
+      tags: [growth]
+      summary: Generate a short-lived code to link this account to the Telegram bot
+      description: The student sends "/ربط <code>" to the bot within the expiry window to complete the link.
+      security:
+        - userBearer: []
+      responses:
+        "200":
+          description: A fresh one-time code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelegramLinkCodeResponse"
+        "401":
+          description: Session token is missing or invalid
+  /internal/telegram/link:
+    post:
+      operationId: consumeTelegramLinkCode
+      tags: [growth]
+      summary: Internal — the Telegram bot redeems a link code to attach a Telegram identity to an account
+      description: Called only by artifacts/telegram-bot, authenticated with the shared BOT_API_SECRET (never exposed to the app or the browser).
+      parameters:
+        - in: header
+          name: X-Bot-Secret
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConsumeTelegramLinkCodeRequest"
+      responses:
+        "200":
+          description: Account linked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TelegramLinkResult"
+        "400":
+          description: Code is invalid, already used, or expired
+        "401":
+          description: X-Bot-Secret is missing or incorrect
+  /flashcards/decks:
+    get:
+      operationId: getFlashcardDecks
+      tags: [flashcards]
+      summary: List published flashcard decks for a subject
+      parameters:
+        - in: query
+          name: subjectId
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Published decks for the subject
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlashcardDeckList"
+        "400":
+          description: subjectId is missing or invalid
+    post:
+      operationId: suggestFlashcardDeck
+      tags: [flashcards]
+      summary: A signed-in contributor suggests a new deck (goes to pending review)
+      security:
+        - userBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuggestFlashcardDeckRequest"
+      responses:
+        "200":
+          description: Deck created as pending
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlashcardDeckCreateResult"
+        "400":
+          description: Request body is invalid
+        "401":
+          description: Session token is missing or invalid
+  /flashcards/decks/{id}:
+    get:
+      operationId: getFlashcardDeck
+      tags: [flashcards]
+      summary: Get a published deck with all of its cards
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The deck and its cards
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlashcardDeckDetail"
+        "404":
+          description: The deck does not exist or is not published
+  /catalog/admin/flashcards:
+    get:
+      operationId: getAdminFlashcardDecks
+      tags: [flashcards, catalog-admin]
+      summary: List all flashcard decks (any status) for the admin review queue
+      security:
+        - adminBearer: []
+      responses:
+        "200":
+          description: All decks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminFlashcardDeckList"
+        "401":
+          description: Administrator token is missing or invalid
+    post:
+      operationId: createAdminFlashcardDeck
+      tags: [flashcards, catalog-admin]
+      summary: Admin creates a deck directly (e.g. bulk-pasted "question | answer" lines) — published immediately
+      security:
+        - adminBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuggestFlashcardDeckRequest"
+      responses:
+        "200":
+          description: Deck created as published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlashcardDeckCreateResult"
+        "400":
+          description: Request body is invalid
+        "401":
+          description: Administrator token is missing or invalid
+  /catalog/admin/flashcards/{id}:
+    get:
+      operationId: getAdminFlashcardDeck
+      tags: [flashcards, catalog-admin]
+      summary: Get any deck (including pending/rejected) with its cards, for review
+      security:
+        - adminBearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The deck and its cards
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlashcardDeckDetail"
+        "401":
+          description: Administrator token is missing or invalid
+        "404":
+          description: The deck does not exist
+  /catalog/admin/flashcards/{id}/manage:
+    post:
+      operationId: manageAdminFlashcardDeck
+      tags: [flashcards, catalog-admin]
+      summary: Publish, reject, or delete a flashcard deck
+      security:
+        - adminBearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlashcardDeckManageAction"
+      responses:
+        "200":
+          description: Action applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlashcardDeckManageResult"
+        "400":
+          description: Request body is invalid
+        "401":
+          description: Administrator token is missing or invalid
+        "404":
+          description: The deck does not exist
+  /premium/verify-purchase:
+    post:
+      operationId: verifyPremiumPurchase
+      tags: [premium]
+      summary: Verify a Google Play one-time purchase and grant Premium to the signed-in account
+      description: Calls the Google Play Developer API server-side; requires GOOGLE_PLAY_SERVICE_ACCOUNT_JSON to be configured.
+      security:
+        - userBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyPremiumPurchaseRequest"
+      responses:
+        "200":
+          description: Purchase verified and Premium granted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PremiumPurchaseResult"
+        "400":
+          description: Request body is invalid, or the purchase could not be verified as valid/paid for this product
+        "401":
+          description: Session token is missing or invalid
+        "503":
+          description: Purchase verification is not configured on the server
+components:
+  securitySchemes:
+    adminBearer:
+      type: http
+      scheme: bearer
+    userBearer:
+      type: http
+      scheme: bearer
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    MaterialCategory:
+      type: string
+      enum:
+        - summary
+        - lecture-notes
+        - previous-exam
+        - model-answer
+        - revision
+        - practice
+    ExamType:
+      type: string
+      enum: [midterm, final, quiz, sheet, other]
+    PublicationStatus:
+      type: string
+      enum:
+        - draft
+        - pending
+        - published
+        - rejected
+    University:
+      type: object
+      properties:
+        id:
+          type: integer
+        nameAr:
+          type: string
+        nameEn:
+          type: string
+        city:
+          type: string
+        isDemo:
+          type: boolean
+      required: [id, nameAr, nameEn, city, isDemo]
+    Faculty:
+      type: object
+      properties:
+        id:
+          type: integer
+        universityId:
+          type: integer
+        nameAr:
+          type: string
+        nameEn:
+          type: string
+        isDemo:
+          type: boolean
+      required: [id, universityId, nameAr, nameEn, isDemo]
+    AcademicYear:
+      type: object
+      properties:
+        id:
+          type: integer
+        facultyId:
+          type: integer
+        labelAr:
+          type: string
+        labelEn:
+          type: string
+        rank:
+          type: integer
+        isDemo:
+          type: boolean
+      required: [id, facultyId, labelAr, labelEn, rank, isDemo]
+    Semester:
+      type: object
+      properties:
+        id:
+          type: integer
+        academicYearId:
+          type: integer
+        labelAr:
+          type: string
+        labelEn:
+          type: string
+        rank:
+          type: integer
+        isDemo:
+          type: boolean
+      required: [id, academicYearId, labelAr, labelEn, rank, isDemo]
+    Subject:
+      type: object
+      properties:
+        id:
+          type: integer
+        semesterId:
+          type: integer
+        nameAr:
+          type: string
+        nameEn:
+          type: string
+        code:
+          type: [string, "null"]
+        isDemo:
+          type: boolean
+      required: [id, semesterId, nameAr, nameEn, code, isDemo]
+    Material:
+      type: object
+      properties:
+        id:
+          type: integer
+        subjectId:
+          type: integer
+        titleAr:
+          type: string
+        titleEn:
+          type: string
+        category:
+          $ref: "#/components/schemas/MaterialCategory"
+        descriptionAr:
+          type: string
+        descriptionEn:
+          type: string
+        fileFormat:
+          type: string
+        documentUrl:
+          type: [string, "null"]
+        fileSizeBytes:
+          type: [integer, "null"]
+        contributor:
+          type: [string, "null"]
+        uploaderId:
+          type: [string, "null"]
+          format: uuid
+        professorName:
+          type: [string, "null"]
+        examYear:
+          type: [integer, "null"]
+        examType:
+          oneOf:
+            - $ref: "#/components/schemas/ExamType"
+            - type: "null"
+        appearedInExam:
+          type: boolean
+        publicationStatus:
+          $ref: "#/components/schemas/PublicationStatus"
+        rejectionReason:
+          type: [string, "null"]
+        downloadCount:
+          type: integer
+        thanksCount:
+          type: integer
+        fulfilledRequestId:
+          type: [integer, "null"]
+        source:
+          $ref: "#/components/schemas/MaterialSource"
+        authorized:
+          type: boolean
+        isDemo:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - subjectId
+        - titleAr
+        - titleEn
+        - category
+        - descriptionAr
+        - descriptionEn
+        - fileFormat
+        - documentUrl
+        - fileSizeBytes
+        - contributor
+        - uploaderId
+        - professorName
+        - examYear
+        - examType
+        - appearedInExam
+        - publicationStatus
+        - rejectionReason
+        - downloadCount
+        - thanksCount
+        - fulfilledRequestId
+        - source
+        - authorized
+        - isDemo
+        - createdAt
+        - updatedAt
+    MaterialSource:
+      type: string
+      enum: [app, telegram, bulk-admin]
+    UploaderSummary:
+      type: object
+      description: "Public attribution line for a material's uploader (\"رفعه: [الاسم] · [الكلية]\"). Only ever present when the uploader is a real account with hideIdentity=false — otherwise the client falls back to the legacy free-text `contributor` field."
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        photoUrl:
+          type: [string, "null"]
+        facultyNameAr:
+          type: [string, "null"]
+        title:
+          type: [string, "null"]
+      required: [userId, displayName, photoUrl, facultyNameAr, title]
+    MaterialDetail:
+      description: A single published material plus its public uploader attribution line (not included in paginated list responses, to avoid a per-row contributor-stats query on every page).
+      type: object
+      properties:
+        id:
+          type: integer
+        subjectId:
+          type: integer
+        titleAr:
+          type: string
+        titleEn:
+          type: string
+        category:
+          $ref: "#/components/schemas/MaterialCategory"
+        descriptionAr:
+          type: string
+        descriptionEn:
+          type: string
+        fileFormat:
+          type: string
+        documentUrl:
+          type: [string, "null"]
+        fileSizeBytes:
+          type: [integer, "null"]
+        contributor:
+          type: [string, "null"]
+        uploaderId:
+          type: [string, "null"]
+          format: uuid
+        professorName:
+          type: [string, "null"]
+        examYear:
+          type: [integer, "null"]
+        examType:
+          oneOf:
+            - $ref: "#/components/schemas/ExamType"
+            - type: "null"
+        appearedInExam:
+          type: boolean
+        publicationStatus:
+          $ref: "#/components/schemas/PublicationStatus"
+        rejectionReason:
+          type: [string, "null"]
+        downloadCount:
+          type: integer
+        thanksCount:
+          type: integer
+        fulfilledRequestId:
+          type: [integer, "null"]
+        source:
+          $ref: "#/components/schemas/MaterialSource"
+        authorized:
+          type: boolean
+        isDemo:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        uploaderSummary:
+          oneOf:
+            - $ref: "#/components/schemas/UploaderSummary"
+            - type: "null"
+      required:
+        - id
+        - subjectId
+        - titleAr
+        - titleEn
+        - category
+        - descriptionAr
+        - descriptionEn
+        - fileFormat
+        - documentUrl
+        - fileSizeBytes
+        - contributor
+        - uploaderId
+        - professorName
+        - examYear
+        - examType
+        - appearedInExam
+        - publicationStatus
+        - rejectionReason
+        - downloadCount
+        - thanksCount
+        - fulfilledRequestId
+        - source
+        - authorized
+        - isDemo
+        - createdAt
+        - updatedAt
+        - uploaderSummary
+    CatalogResponse:
+      type: object
+      properties:
+        universities:
+          type: array
+          items:
+            $ref: "#/components/schemas/University"
+        faculties:
+          type: array
+          items:
+            $ref: "#/components/schemas/Faculty"
+        academicYears:
+          type: array
+          items:
+            $ref: "#/components/schemas/AcademicYear"
+        semesters:
+          type: array
+          items:
+            $ref: "#/components/schemas/Semester"
+        subjects:
+          type: array
+          items:
+            $ref: "#/components/schemas/Subject"
+        materials:
+          type: array
+          items:
+            $ref: "#/components/schemas/Material"
+      required:
+        - universities
+        - faculties
+        - academicYears
+        - semesters
+        - subjects
+        - materials
+    TreeSubject:
+      type: object
+      properties:
+        id:
+          type: integer
+        semesterId:
+          type: integer
+        nameAr:
+          type: string
+        nameEn:
+          type: string
+        code:
+          type: [string, "null"]
+        isDemo:
+          type: boolean
+        materialCount:
+          type: integer
+      required: [id, semesterId, nameAr, nameEn, code, isDemo, materialCount]
+    CatalogTreeResponse:
+      type: object
+      properties:
+        universities:
+          type: array
+          items:
+            $ref: "#/components/schemas/University"
+        faculties:
+          type: array
+          items:
+            $ref: "#/components/schemas/Faculty"
+        academicYears:
+          type: array
+          items:
+            $ref: "#/components/schemas/AcademicYear"
+        semesters:
+          type: array
+          items:
+            $ref: "#/components/schemas/Semester"
+        subjects:
+          type: array
+          items:
+            $ref: "#/components/schemas/TreeSubject"
+      required: [universities, faculties, academicYears, semesters, subjects]
+    MaterialsPageResponse:
+      type: object
+      properties:
+        materials:
+          type: array
+          items:
+            $ref: "#/components/schemas/Material"
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        hasMore:
+          type: boolean
+      required: [materials, page, limit, total, hasMore]
+    MaterialSearchResponse:
+      type: object
+      properties:
+        materials:
+          type: array
+          items:
+            $ref: "#/components/schemas/Material"
+      required: [materials]
+    AdminAccessResponse:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+      required: [enabled]
+    AdminManageRequest:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [create, update, delete]
+        entityType:
+          type: string
+          enum: [university, faculty, academicYear, semester, subject, material]
+        id:
+          type: integer
+        parentId:
+          type: integer
+        rank:
+          type: integer
+        city:
+          type: string
+        nameAr:
+          type: string
+        nameEn:
+          type: string
+        labelAr:
+          type: string
+        labelEn:
+          type: string
+        code:
+          type: [string, "null"]
+        titleAr:
+          type: string
+        titleEn:
+          type: string
+        category:
+          $ref: "#/components/schemas/MaterialCategory"
+        descriptionAr:
+          type: string
+        descriptionEn:
+          type: string
+        fileFormat:
+          type: string
+        documentUrl:
+          type: [string, "null"]
+        fileSizeBytes:
+          type: [integer, "null"]
+        contributor:
+          type: [string, "null"]
+        professorName:
+          type: [string, "null"]
+        examYear:
+          type: [integer, "null"]
+        examType:
+          oneOf:
+            - $ref: "#/components/schemas/ExamType"
+            - type: "null"
+        appearedInExam:
+          type: boolean
+        publicationStatus:
+          $ref: "#/components/schemas/PublicationStatus"
+        rejectionReason:
+          type: [string, "null"]
+        authorized:
+          type: boolean
+      required: [action, entityType]
+    AdminManageResponse:
+      type: object
+      properties:
+        entityType:
+          type: string
+        action:
+          type: string
+        id:
+          type: integer
+        success:
+          type: boolean
+      required: [entityType, action, id, success]
+    UserRole:
+      type: string
+      enum: [student, admin]
+    UserStatus:
+      type: string
+      enum: [active, suspended]
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        photoUrl:
+          type: [string, "null"]
+        facultyId:
+          type: [integer, "null"]
+        role:
+          $ref: "#/components/schemas/UserRole"
+        status:
+          $ref: "#/components/schemas/UserStatus"
+        hideIdentity:
+          type: boolean
+        premiumGranted:
+          type: boolean
+        premiumPurchased:
+          type: boolean
+        isPremium:
+          type: boolean
+          description: Convenience flag = premiumGranted OR premiumPurchased. Use this, not either flag alone, to decide whether to show ads / enforce the download cap.
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - displayName
+        - photoUrl
+        - facultyId
+        - role
+        - status
+        - hideIdentity
+        - premiumGranted
+        - premiumPurchased
+        - isPremium
+        - createdAt
+    GoogleSignInRequest:
+      type: object
+      properties:
+        idToken:
+          type: string
+          minLength: 1
+      required: [idToken]
+    GoogleSignInResponse:
+      type: object
+      properties:
+        token:
+          type: string
+        user:
+          $ref: "#/components/schemas/UserProfile"
+      required: [token, user]
+    UpdateCurrentUserRequest:
+      type: object
+      properties:
+        hideIdentity:
+          type: boolean
+        facultyId:
+          type: [integer, "null"]
+      minProperties: 1
+    SessionTokenResponse:
+      type: object
+      properties:
+        token:
+          type: string
+      required: [token]
+    AccountDeletionResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+      required: [success]
+    UploadPresignRequest:
+      type: object
+      properties:
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        contentType:
+          type: string
+          minLength: 1
+        fileSizeBytes:
+          type: integer
+          minimum: 1
+      required: [fileName, contentType, fileSizeBytes]
+    UploadMode:
+      type: string
+      enum: [presigned, relay]
+    UploadPresignResponse:
+      type: object
+      properties:
+        key:
+          type: string
+        uploadMode:
+          $ref: "#/components/schemas/UploadMode"
+        uploadUrl:
+          type: [string, "null"]
+        maxFileSizeBytes:
+          type: integer
+      required: [key, uploadMode, uploadUrl, maxFileSizeBytes]
+    CreateMaterialUploadRequest:
+      type: object
+      properties:
+        key:
+          type: string
+          minLength: 1
+        subjectId:
+          type: integer
+        titleAr:
+          type: string
+          minLength: 1
+        titleEn:
+          type: string
+          minLength: 1
+        category:
+          $ref: "#/components/schemas/MaterialCategory"
+        descriptionAr:
+          type: string
+        descriptionEn:
+          type: string
+        professorName:
+          type: [string, "null"]
+        examYear:
+          type: [integer, "null"]
+        examType:
+          oneOf:
+            - $ref: "#/components/schemas/ExamType"
+            - type: "null"
+        appearedInExam:
+          type: boolean
+        acknowledgedRights:
+          type: boolean
+          const: true
+        fulfillsRequestId:
+          description: Set when the student picked "عندي الملف ده" from an open request on the "مطلوب" board. The request only flips to fulfilled once this upload is published, not at submission time.
+          type: [integer, "null"]
+      required:
+        - key
+        - subjectId
+        - titleAr
+        - titleEn
+        - category
+        - acknowledgedRights
+    MaterialUploadResult:
+      type: object
+      properties:
+        material:
+          $ref: "#/components/schemas/Material"
+        duplicate:
+          type: boolean
+      required: [material, duplicate]
+    MyUploadsResponse:
+      type: object
+      properties:
+        materials:
+          type: array
+          items:
+            $ref: "#/components/schemas/Material"
+      required: [materials]
+    ReportTargetType:
+      type: string
+      enum: [material, profile, request]
+    ReportReason:
+      type: string
+      enum: [copyright, inappropriate, wrong_info, spam, other]
+    ReportStatus:
+      type: string
+      enum: [open, resolved, dismissed]
+    CreateReportRequest:
+      type: object
+      properties:
+        targetType:
+          $ref: "#/components/schemas/ReportTargetType"
+        targetId:
+          type: string
+          minLength: 1
+          description: >-
+            The target's id as a string: a material's numeric id (e.g.
+            "42") or a user profile's uuid, depending on targetType.
+        reason:
+          $ref: "#/components/schemas/ReportReason"
+        details:
+          type: string
+          maxLength: 500
+        deviceId:
+          type: string
+          maxLength: 120
+      required: [targetType, targetId, reason]
+    ReportSubmissionResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          $ref: "#/components/schemas/ReportStatus"
+      required: [id, status]
+    Report:
+      type: object
+      properties:
+        id:
+          type: integer
+        targetType:
+          $ref: "#/components/schemas/ReportTargetType"
+        targetId:
+          type: string
+        reporterUserId:
+          type: [string, "null"]
+          format: uuid
+        reporterDeviceId:
+          type: [string, "null"]
+        reason:
+          $ref: "#/components/schemas/ReportReason"
+        details:
+          type: [string, "null"]
+        status:
+          $ref: "#/components/schemas/ReportStatus"
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - targetType
+        - targetId
+        - reporterUserId
+        - reporterDeviceId
+        - reason
+        - details
+        - status
+        - createdAt
+    AdminReportsResponse:
+      type: object
+      properties:
+        reports:
+          type: array
+          items:
+            $ref: "#/components/schemas/Report"
+      required: [reports]
+    AdminReportActionRequest:
+      type: object
+      properties:
+        action:
+          type: string
+          enum:
+            [
+              unpublish,
+              dismiss,
+              suspend-uploads,
+              suspend-account,
+              reinstate-account,
+            ]
+        suspendDays:
+          type: integer
+          minimum: 1
+          maximum: 90
+      required: [action]
+    AdminReportActionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        report:
+          $ref: "#/components/schemas/Report"
+      required: [success, report]
+    RecordDownloadResponse:
+      type: object
+      properties:
+        downloadCount:
+          type: integer
+      required: [downloadCount]
+    RecordThanksResponse:
+      type: object
+      properties:
+        thanksCount:
+          type: integer
+        alreadyThanked:
+          type: boolean
+      required: [thanksCount, alreadyThanked]
+    ContributorProfileMaterial:
+      type: object
+      properties:
+        id:
+          type: integer
+        titleAr:
+          type: string
+        titleEn:
+          type: string
+        category:
+          $ref: "#/components/schemas/MaterialCategory"
+        subjectId:
+          type: integer
+        downloadCount:
+          type: integer
+        thanksCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - titleAr
+        - titleEn
+        - category
+        - subjectId
+        - downloadCount
+        - thanksCount
+        - createdAt
+    ContributorProfileResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        photoUrl:
+          type: [string, "null"]
+        facultyNameAr:
+          type: [string, "null"]
+        title:
+          type: [string, "null"]
+        publishedCount:
+          type: integer
+        totalDownloads:
+          type: integer
+        totalThanks:
+          type: integer
+        fulfilledRequestsCount:
+          description: Published materials by this contributor that fulfilled a "مطلوب" board request — drives the "لبّيت طلب" badge.
+          type: integer
+        materials:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContributorProfileMaterial"
+      required:
+        - id
+        - displayName
+        - photoUrl
+        - facultyNameAr
+        - title
+        - publishedCount
+        - totalDownloads
+        - totalThanks
+        - fulfilledRequestsCount
+        - materials
+    LeaderboardScope:
+      type: string
+      enum: [semester, all-time]
+    LeaderboardEntry:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        photoUrl:
+          type: [string, "null"]
+        title:
+          type: [string, "null"]
+        downloads:
+          type: integer
+        materialsCount:
+          type: integer
+      required:
+        - userId
+        - displayName
+        - photoUrl
+        - title
+        - downloads
+        - materialsCount
+    LeaderboardResponse:
+      type: object
+      properties:
+        facultyId:
+          type: integer
+        scope:
+          $ref: "#/components/schemas/LeaderboardScope"
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/LeaderboardEntry"
+      required: [facultyId, scope, entries]
+    RequestStatus:
+      type: string
+      enum: [open, fulfilled, closed]
+    MaterialRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        facultyId:
+          type: integer
+        subjectId:
+          type: [integer, "null"]
+        titleAr:
+          type: string
+        requesterUserId:
+          type: [string, "null"]
+          format: uuid
+        status:
+          $ref: "#/components/schemas/RequestStatus"
+        fulfilledByMaterialId:
+          type: [integer, "null"]
+        meTooCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - facultyId
+        - subjectId
+        - titleAr
+        - requesterUserId
+        - status
+        - fulfilledByMaterialId
+        - meTooCount
+        - createdAt
+    CreateRequestRequest:
+      type: object
+      properties:
+        facultyId:
+          type: integer
+        subjectId:
+          type: [integer, "null"]
+        titleAr:
+          type: string
+          minLength: 3
+          maxLength: 200
+      required: [facultyId, titleAr]
+    RequestCreationResult:
+      type: object
+      properties:
+        request:
+          $ref: "#/components/schemas/MaterialRequest"
+      required: [request]
+    RequestsListResponse:
+      type: object
+      properties:
+        requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/MaterialRequest"
+      required: [requests]
+    RequestMeTooResponse:
+      type: object
+      properties:
+        meTooCount:
+          type: integer
+        alreadyMeToo:
+          type: boolean
+      required: [meTooCount, alreadyMeToo]
+    AdminRequestActionRequest:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [close, delete]
+      required: [action]
+    AdminRequestActionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        request:
+          oneOf:
+            - $ref: "#/components/schemas/MaterialRequest"
+            - type: "null"
+      required: [success, request]
+    TelegramLinkCodeResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+      required: [code, expiresAt]
+    ConsumeTelegramLinkCodeRequest:
+      type: object
+      properties:
+        code:
+          type: string
+        telegramUserId:
+          type: string
+        telegramChatId:
+          type: string
+        telegramUsername:
+          type: [string, "null"]
+      required: [code, telegramUserId, telegramChatId]
+    TelegramLinkResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        displayName:
+          type: string
+      required: [success, displayName]
+    FlashcardOptions:
+      type: [array, "null"]
+      items:
+        type: string
+    Flashcard:
+      type: object
+      properties:
+        id:
+          type: integer
+        deckId:
+          type: integer
+        questionAr:
+          type: string
+        answerAr:
+          type: string
+        options:
+          $ref: "#/components/schemas/FlashcardOptions"
+        explanationAr:
+          type: [string, "null"]
+        position:
+          type: integer
+      required: [id, deckId, questionAr, answerAr, options, explanationAr, position]
+    FlashcardDeckSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        subjectId:
+          type: integer
+        titleAr:
+          type: string
+        cardCount:
+          type: integer
+      required: [id, subjectId, titleAr, cardCount]
+    FlashcardDeckDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+        subjectId:
+          type: integer
+        titleAr:
+          type: string
+        status:
+          $ref: "#/components/schemas/PublicationStatus"
+        cards:
+          type: array
+          items:
+            $ref: "#/components/schemas/Flashcard"
+      required: [id, subjectId, titleAr, status, cards]
+    FlashcardDeckList:
+      type: object
+      properties:
+        decks:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlashcardDeckSummary"
+      required: [decks]
+    AdminFlashcardDeckSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        subjectId:
+          type: integer
+        titleAr:
+          type: string
+        status:
+          $ref: "#/components/schemas/PublicationStatus"
+        cardCount:
+          type: integer
+        createdByUserId:
+          type: [string, "null"]
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - subjectId
+        - titleAr
+        - status
+        - cardCount
+        - createdByUserId
+        - createdAt
+    AdminFlashcardDeckList:
+      type: object
+      properties:
+        decks:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminFlashcardDeckSummary"
+      required: [decks]
+    FlashcardInput:
+      type: object
+      properties:
+        questionAr:
+          type: string
+          minLength: 1
+        answerAr:
+          type: string
+          minLength: 1
+        options:
+          $ref: "#/components/schemas/FlashcardOptions"
+        explanationAr:
+          type: [string, "null"]
+      required: [questionAr, answerAr]
+    SuggestFlashcardDeckRequest:
+      type: object
+      properties:
+        subjectId:
+          type: integer
+        titleAr:
+          type: string
+          minLength: 1
+        cards:
+          type: array
+          minItems: 1
+          maxItems: 300
+          items:
+            $ref: "#/components/schemas/FlashcardInput"
+      required: [subjectId, titleAr, cards]
+    FlashcardDeckCreateResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          $ref: "#/components/schemas/PublicationStatus"
+      required: [id, status]
+    FlashcardDeckManageAction:
+      type: object
+      properties:
+        action:
+          type: string
+          enum: [publish, reject, delete]
+      required: [action]
+    FlashcardDeckManageResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        status:
+          oneOf:
+            - $ref: "#/components/schemas/PublicationStatus"
+            - type: "null"
+      required: [success, status]
+    VerifyPremiumPurchaseRequest:
+      type: object
+      properties:
+        purchaseToken:
+          type: string
+          minLength: 1
+        productId:
+          type: string
+          minLength: 1
+      required: [purchaseToken, productId]
+    PremiumPurchaseResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        user:
+          $ref: "#/components/schemas/UserProfile"
+      required: [success, user]
+

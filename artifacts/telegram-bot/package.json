@@ -1,0 +1,21 @@
+{
+  "name": "@workspace/telegram-bot",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Stage 6 growth channel: lets students submit files to مراجعي from a Telegram chat/group instead of the app, and link their Telegram identity to their app account so submissions count toward their titles.",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "node ./build.mjs",
+    "start": "node --enable-source-maps ./dist/index.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "grammy": "1.46.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "esbuild": "0.28.2",
+    "tsx": "catalog:"
+  }
+}
