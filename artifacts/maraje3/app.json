@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "مراجع | Maraje3",
+    "slug": "maraje3",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon_2.png",
+    "scheme": "maraje3",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "edu.maraje3.studentlibrary"
+    },
+    "android": {
+      "package": "edu.maraje3.studentlibrary",
+      "supportsRtl": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon_2.png",
+        "backgroundColor": "#123f4a"
+      }
+    },
+    "splash": {
+      "image": "./assets/images/icon_2.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#f6f4ec"
+    },
+    "web": {
+      "favicon": "./assets/images/icon_2.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sharing",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/icon_2.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#f6f4ec"
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon_2.png",
+          "color": "#123f4a"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
